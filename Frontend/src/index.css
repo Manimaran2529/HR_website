@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0B0F17;
+  color: white;
+}
+
+.card {
+  background: linear-gradient(145deg, #1f2937, #111827);
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #2d3748;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.card {
+  background: #111827;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #1f2937;
+}
+
+.title {
+  font-weight: 600;
+}
