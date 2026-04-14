@@ -5,109 +5,147 @@ export default function Candidates() {
   const [candidates, setCandidates] = useState([]);
   const [domainFilter, setDomainFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+
   const [loadingAI, setLoadingAI] = useState(false);
 
-  // ✅ FETCH FROM BACKEND
-  const fetchCandidates = () => {
-    fetch("http://127.0.0.1:8000/candidates")
-      .then(res => res.json())
-      .then(data => setCandidates(data.data))
-      .catch(() => alert("Failed to fetch candidates"));
+  // MODAL
+  const [showModal, setShowModal] = useState(false);
+  const [mailType, setMailType] = useState("");
+  const [hrEmail, setHrEmail] = useState("");
+  const [hrPassword, setHrPassword] = useState("");
+
+  // ===============================
+  // FETCH
+  // ===============================
+  const fetchCandidates = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/candidates");
+      const data = await res.json();
+      setCandidates(data.data || []);
+    } catch {
+      alert("❌ Failed to fetch candidates");
+    }
   };
 
   useEffect(() => {
     fetchCandidates();
   }, []);
 
-  // ✅ FILTER
+  // ===============================
+  // FILTER
+  // ===============================
   const filtered = candidates.filter(c =>
     (domainFilter === "All" || c.domain === domainFilter) &&
     (statusFilter === "All" || c.status === statusFilter)
   );
 
-  // ✅ COUNTS
-  const total = filtered.length;
   const selectedCount = filtered.filter(c => c.status === "Selected").length;
   const rejectedCount = filtered.filter(c => c.status === "Rejected").length;
 
-  // ✅ UPDATE STATUS
+  // ===============================
+  // UPDATE STATUS
+  // ===============================
   const updateStatus = async (id, status) => {
-    const formData = new FormData();
-    formData.append("status", status);
+    try {
+      const formData = new FormData();
+      formData.append("status", status);
 
-    await fetch(`http://127.0.0.1:8000/candidate/${id}`, {
-      method: "PUT",
-      body: formData
-    });
+      await fetch(`http://127.0.0.1:8000/candidate/${id}`, {
+        method: "PUT",
+        body: formData
+      });
 
-    fetchCandidates();
+      fetchCandidates();
+    } catch {
+      alert("❌ Failed to update status");
+    }
   };
 
-  // 🤖 AI SELECT
+  // ===============================
+  // AI SELECT
+  // ===============================
   const aiSelect = async () => {
-
-    if (domainFilter === "All") {
-      alert("⚠️ Please select a domain first");
-      return;
-    }
-
     setLoadingAI(true);
 
-    const formData = new FormData();
-    formData.append("domain", domainFilter);
+    try {
+      await fetch("http://127.0.0.1:8000/ai-select", {
+        method: "POST"
+      });
 
-    await fetch("http://127.0.0.1:8000/ai-select", {
-      method: "POST",
-      body: formData
-    });
+      alert("🤖 AI Selection Completed!");
+      fetchCandidates();
+    } catch {
+      alert("❌ AI failed");
+    }
 
-    alert("🤖 AI Selection Completed!");
     setLoadingAI(false);
-    fetchCandidates();
+  };
+
+  // ===============================
+  // MAIL
+  // ===============================
+  const openMailModal = (type) => {
+    setMailType(type);
+    setShowModal(true);
+  };
+
+  const sendMail = async () => {
+    try {
+      const formData = new FormData();
+      formData.append("sender", hrEmail);
+      formData.append("password", hrPassword);
+
+      const url =
+        mailType === "selected"
+          ? "http://127.0.0.1:8000/send-selected-mails"
+          : "http://127.0.0.1:8000/send-rejected-mails";
+
+      await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+
+      alert("✅ Mail sent successfully!");
+
+      setShowModal(false);
+      setHrEmail("");
+      setHrPassword("");
+
+      fetchCandidates();
+
+    } catch {
+      alert("❌ Mail failed");
+    }
   };
 
   return (
-    <div className="flex-1 p-6">
+    <div className="flex-1 p-8 bg-[#0b1220] min-h-screen text-white">
 
-      {/* TITLE */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Candidates</h1>
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-semibold">Candidates</h1>
 
         <button
           onClick={aiSelect}
-          className="bg-purple-600 px-5 py-2 rounded-lg"
+          className="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-xl"
         >
           {loadingAI ? "Processing..." : "🤖 AI Smart Selection"}
         </button>
       </div>
 
       {/* STATS */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-
-        <div className="bg-[#111827] p-4 rounded-xl border border-gray-800">
-          <p className="text-gray-400">Total</p>
-          <h2 className="text-2xl font-bold">{total}</h2>
-        </div>
-
-        <div className="bg-green-900/20 border border-green-500 p-4 rounded-xl">
-          <p className="text-green-400">Selected</p>
-          <h2 className="text-2xl font-bold">{selectedCount}</h2>
-        </div>
-
-        <div className="bg-red-900/20 border border-red-500 p-4 rounded-xl">
-          <p className="text-red-400">Rejected</p>
-          <h2 className="text-2xl font-bold">{rejectedCount}</h2>
-        </div>
-
+      <div className="grid grid-cols-3 gap-6 mb-8">
+        <Stat title="Total" value={filtered.length} />
+        <Stat title="Selected" value={selectedCount} green />
+        <Stat title="Rejected" value={rejectedCount} red />
       </div>
 
-      {/* FILTERS */}
-      <div className="flex gap-3 mb-6">
-
+      {/* FILTER */}
+      <div className="flex gap-4 mb-6">
         <select
           value={domainFilter}
           onChange={(e) => setDomainFilter(e.target.value)}
-          className="bg-[#111827] px-3 py-2 rounded-lg border border-gray-700"
+          className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
         >
           <option>All</option>
           <option>ML</option>
@@ -118,76 +156,62 @@ export default function Candidates() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-[#111827] px-3 py-2 rounded-lg border border-gray-700"
+          className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
         >
           <option>All</option>
           <option>Pending</option>
           <option>Selected</option>
           <option>Rejected</option>
         </select>
-
       </div>
 
       {/* TABLE */}
-      <div className="bg-[#111827] rounded-xl border border-gray-800 overflow-x-auto">
+      <div className="bg-[#111827] rounded-xl border border-gray-800 overflow-hidden">
 
         <table className="w-full text-sm">
 
           <thead className="bg-[#1f2937] text-gray-400">
             <tr>
-              <th className="px-4 py-3 text-left">Name</th>
-              <th className="px-4 py-3 text-left">Email</th>
-              <th className="px-4 py-3 text-left">Phone</th>
-              <th className="px-4 py-3 text-left">Domain</th>
-              <th className="px-4 py-3 text-center">Score</th>
-              <th className="px-4 py-3 text-center">Status</th>
-              <th className="px-4 py-3 text-center">Resume</th>
-              <th className="px-4 py-3 text-center">Action</th>
+              <th className="p-4 text-left">Name</th>
+              <th className="p-4 text-left">Email</th>
+              <th className="p-4 text-center">Phone</th>
+              <th className="p-4 text-center">Domain</th>
+              <th className="p-4 text-center">Score</th>
+              <th className="p-4 text-center">Status</th>
+              <th className="p-4 text-center">Resume</th>
+              <th className="p-4 text-center">Action</th>
             </tr>
           </thead>
 
           <tbody>
-            {filtered.map((c) => (
+            {filtered.map(c => (
               <tr key={c.id} className="border-t border-gray-700 hover:bg-[#0f172a]">
 
-                <td className="px-4 py-3">{c.name}</td>
-                <td className="px-4 py-3">{c.email}</td>
-                <td className="px-4 py-3">{c.phone}</td>
-                <td className="px-4 py-3">{c.domain}</td>
+                <td className="p-4">{c.name}</td>
+                <td>{c.email}</td>
+                <td className="text-center">{c.phone}</td>
+                <td className="text-center">{c.domain}</td>
+                <td className="text-center font-semibold">{c.score || 0}%</td>
 
-                {/* SCORE */}
-                <td className="px-4 py-3 text-center">
-                  {c.score ? `${c.score}%` : "-"}
-                </td>
-
-                {/* STATUS */}
-                <td className="px-4 py-3 text-center">
+                <td className="text-center">
                   <span className={`px-3 py-1 rounded-full text-xs ${
                     c.status === "Selected"
-                      ? "bg-green-600"
+                      ? "bg-green-500/20 text-green-400"
                       : c.status === "Rejected"
-                      ? "bg-red-600"
-                      : "bg-gray-600"
+                      ? "bg-red-500/20 text-red-400"
+                      : "bg-gray-500/20"
                   }`}>
                     {c.status}
                   </span>
                 </td>
 
-                {/* RESUME */}
-                <td className="px-4 py-3 text-center">
-                  <a
-                    href={c.resume_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-400 hover:underline"
-                  >
-                    View PDF
+                <td className="text-center">
+                  <a href={c.resume_url} target="_blank" className="text-blue-400 hover:underline">
+                    View
                   </a>
                 </td>
 
-                {/* ACTION */}
-                <td className="px-4 py-3 text-center space-x-2">
-
+                <td className="text-center space-x-2">
                   <button
                     onClick={() => updateStatus(c.id, "Selected")}
                     className="bg-green-600 px-3 py-1 rounded text-xs"
@@ -201,7 +225,6 @@ export default function Candidates() {
                   >
                     Reject
                   </button>
-
                 </td>
 
               </tr>
@@ -209,22 +232,86 @@ export default function Candidates() {
           </tbody>
 
         </table>
-
       </div>
 
-      {/* MAIL BUTTONS */}
-      <div className="flex gap-4 mt-6">
-
-        <button className="bg-green-600 px-5 py-2 rounded-lg">
+      {/* ✅ MAIL BUTTONS (VISIBLE NOW) */}
+      <div className="flex gap-4 mt-8">
+        <button
+          onClick={() => openMailModal("selected")}
+          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg"
+        >
           Send Selected Mail ({selectedCount})
         </button>
 
-        <button className="bg-red-600 px-5 py-2 rounded-lg">
+        <button
+          onClick={() => openMailModal("rejected")}
+          className="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-lg"
+        >
           Send Rejection Mail ({rejectedCount})
         </button>
-
       </div>
 
+      {/* ✅ MODAL */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center">
+
+          <div className="bg-[#111827] p-6 rounded-xl w-96 shadow-2xl">
+
+            <h2 className="text-lg font-semibold mb-4 text-center">
+              {mailType === "selected"
+                ? "Send Selected Mail"
+                : "Send Rejection Mail"}
+            </h2>
+
+            <input
+              placeholder="HR Gmail"
+              value={hrEmail}
+              onChange={(e) => setHrEmail(e.target.value)}
+              className="w-full mb-3 p-3 rounded bg-[#0f172a] border border-gray-700"
+            />
+
+            <input
+              type="password"
+              placeholder="App Password"
+              value={hrPassword}
+              onChange={(e) => setHrPassword(e.target.value)}
+              className="w-full mb-4 p-3 rounded bg-[#0f172a] border border-gray-700"
+            />
+
+            <div className="flex justify-between">
+              <button
+                onClick={() => setShowModal(false)}
+                className="bg-gray-600 px-4 py-2 rounded"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={sendMail}
+                className="bg-blue-600 px-4 py-2 rounded"
+              >
+                Send
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* CARD */
+function Stat({ title, value, green, red }) {
+  return (
+    <div className={`p-6 rounded-xl border ${
+      green ? "border-green-500" :
+      red ? "border-red-500" :
+      "border-gray-800"
+    } bg-[#111827]`}>
+      <p className="text-gray-400">{title}</p>
+      <h2 className="text-3xl font-bold">{value}</h2>
     </div>
   );
 }

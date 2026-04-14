@@ -4,8 +4,10 @@ from fastapi.staticfiles import StaticFiles
 import shutil
 import os
 import uuid
+import sqlite3
 from PyPDF2 import PdfReader
-
+from mail import send_email, selected_template, rejected_template
+from mail import send_selected, send_rejected
 app = FastAPI()
 
 # ===============================
@@ -20,17 +22,33 @@ app.add_middleware(
 )
 
 # ===============================
+# ✅ DATABASE
+# ===============================
+conn = sqlite3.connect("candidates.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS candidates (
+    id TEXT,
+    name TEXT,
+    email TEXT,
+    phone TEXT,
+    domain TEXT,
+    resume_url TEXT,
+    status TEXT,
+    score INTEGER,
+    reason TEXT
+)
+""")
+conn.commit()
+
+# ===============================
 # ✅ UPLOAD FOLDER
 # ===============================
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
-
-# ===============================
-# ✅ TEMP DATABASE
-# ===============================
-candidates = []
 
 # ===============================
 # 🚀 UPLOAD RESUME
@@ -45,12 +63,12 @@ async def upload_resume(
 ):
 
     if not resume.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files allowed")
+        raise HTTPException(status_code=400, detail="Only PDF allowed")
 
-    # Prevent duplicate email
-    for c in candidates:
-        if c["email"] == email:
-            raise HTTPException(status_code=400, detail="Email already applied")
+    # prevent duplicate
+    cursor.execute("SELECT * FROM candidates WHERE email=?", (email,))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="Email already applied")
 
     file_id = str(uuid.uuid4())
     file_name = f"{file_id}.pdf"
@@ -59,20 +77,20 @@ async def upload_resume(
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(resume.file, buffer)
 
-    candidate = {
-        "id": file_id,
-        "name": name,
-        "email": email,
-        "phone": phone,
-        "domain": domain,  # user selected
-        "detected_domain": None,  # AI detected
-        "resume_url": f"http://127.0.0.1:8000/uploads/{file_name}",
-        "status": "Pending",
-        "score": 0,
-        "reason": ""
-    }
-
-    candidates.append(candidate)
+    cursor.execute("""
+    INSERT INTO candidates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        file_id,
+        name,
+        email,
+        phone,
+        domain,
+        f"http://127.0.0.1:8000/uploads/{file_name}",
+        "Pending",
+        0,
+        ""
+    ))
+    conn.commit()
 
     return {"message": "✅ Resume uploaded successfully"}
 
@@ -82,53 +100,29 @@ async def upload_resume(
 # ===============================
 @app.get("/candidates")
 def get_candidates():
-    return {
-        "total": len(candidates),
-        "data": candidates
-    }
+
+    cursor.execute("SELECT * FROM candidates")
+    rows = cursor.fetchall()
+
+    data = []
+    for r in rows:
+        data.append({
+            "id": r[0],
+            "name": r[1],
+            "email": r[2],
+            "phone": r[3],
+            "domain": r[4],
+            "resume_url": r[5],
+            "status": r[6],
+            "score": r[7],
+            "reason": r[8]
+        })
+
+    return {"data": data}
 
 
 # ===============================
-# ✏️ UPDATE STATUS
-# ===============================
-@app.put("/candidate/{candidate_id}")
-def update_status(candidate_id: str, status: str = Form(...)):
-
-    for c in candidates:
-        if c["id"] == candidate_id:
-            c["status"] = status
-            return {"message": f"Status updated to {status}"}
-
-    raise HTTPException(status_code=404, detail="Candidate not found")
-
-
-# ===============================
-# ❌ DELETE CANDIDATE
-# ===============================
-@app.delete("/candidate/{candidate_id}")
-def delete_candidate(candidate_id: str):
-
-    global candidates
-
-    candidate = next((c for c in candidates if c["id"] == candidate_id), None)
-
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    # delete file
-    file_name = candidate["resume_url"].split("/")[-1]
-    file_path = os.path.join(UPLOAD_FOLDER, file_name)
-
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
-    candidates = [c for c in candidates if c["id"] != candidate_id]
-
-    return {"message": "Candidate deleted successfully"}
-
-
-# ===============================
-# 🔍 EXTRACT TEXT FROM PDF
+# 🔍 PDF TEXT
 # ===============================
 def extract_text(file_path):
     reader = PdfReader(file_path)
@@ -139,100 +133,141 @@ def extract_text(file_path):
 
 
 # ===============================
-# 🧠 AUTO DOMAIN DETECTION
+# 🤖 ATS ANALYSIS
 # ===============================
-def detect_domain(text):
-
-    if "machine learning" in text or "model" in text:
-        return "ML"
-
-    elif "react" in text or "javascript" in text or "frontend" in text:
-        return "Web"
-
-    elif "data analysis" in text or "sql" in text:
-        return "Data Science"
-
-    return "Unknown"
-
-
-# ===============================
-# 🤖 RESUME ANALYSIS
-# ===============================
-def analyze_resume(text, domain):
+def analyze_resume(text):
 
     score = 0
     reasons = []
 
-    # Common checks
-    if "project" in text:
-        score += 20
-        reasons.append("Projects")
+    # ❌ reject basic
+    if "basic" in text:
+        return 30, "Rejected", "Only basic knowledge"
 
-    if "internship" in text:
+    # ❌ must have project
+    if "project" not in text:
+        return 30, "Rejected", "No projects"
+
+    score += 25
+    reasons.append("Projects")
+
+    # 🔥 strong project
+    if "api" in text or "model" in text or "full stack" in text:
         score += 20
+        reasons.append("Strong project")
+    else:
+        score += 5
+        reasons.append("Basic project")
+
+    # 🔥 skills
+    skills = ["python", "react", "node", "sql"]
+    count = sum(1 for s in skills if s in text)
+
+    if count >= 3:
+        score += 20
+        reasons.append("Strong skills")
+    elif count >= 1:
+        score += 10
+        reasons.append("Limited skills")
+    else:
+        return 40, "Rejected", "No strong skills"
+
+    # 🔥 internship
+    if "internship" in text:
+        score += 10
         reasons.append("Internship")
 
-    # Domain-specific checks
-    if domain == "ML":
-        if "python" in text:
-            score += 20
-            reasons.append("Python")
-        if "model" in text:
-            score += 20
-            reasons.append("ML Model")
-        if "dataset" in text:
-            score += 20
-            reasons.append("Dataset")
-
-    elif domain == "Web":
-        if "react" in text:
-            score += 20
-            reasons.append("React")
-        if "javascript" in text:
-            score += 20
-            reasons.append("JavaScript")
-        if "api" in text:
-            score += 20
-            reasons.append("API")
-
-    elif domain == "Data Science":
-        if "python" in text:
-            score += 20
-            reasons.append("Python")
-        if "sql" in text:
-            score += 20
-            reasons.append("SQL")
-        if "analysis" in text:
-            score += 20
-            reasons.append("Analysis")
-
-    decision = "Selected" if score >= 60 else "Rejected"
+    # 🎯 final
+    decision = "Selected" if score >= 75 else "Rejected"
 
     return score, decision, ", ".join(reasons)
 
 
 # ===============================
-# 🚀 AI SMART SELECTION
+# 🚀 AI SELECT
 # ===============================
 @app.post("/ai-select")
 def ai_select():
 
-    for c in candidates:
+    cursor.execute("SELECT * FROM candidates")
+    rows = cursor.fetchall()
 
-        file_name = c["resume_url"].split("/")[-1]
+    for r in rows:
+
+        id, name, email, phone, domain, resume_url, _, _, _ = r
+
+        file_name = resume_url.split("/")[-1]
         file_path = os.path.join(UPLOAD_FOLDER, file_name)
+
+        if not os.path.exists(file_path):
+            continue
 
         text = extract_text(file_path)
 
-        # 🔥 Detect actual domain
-        detected = detect_domain(text)
-        c["detected_domain"] = detected
+        score, decision, reason = analyze_resume(text)
 
-        # 🔥 Analyze
-        score, decision, reason = analyze_resume(text, detected)
+        cursor.execute("""
+        UPDATE candidates
+        SET status=?, score=?, reason=?
+        WHERE id=?
+        """, (decision, score, reason, id))
 
-        c["score"] = score
-        c["status"] = decision
-        c["reason"] = reason
+        conn.commit()
 
-    return {"message": "🤖 AI selection completed"}
+    return {"message": "🤖 ATS selection completed"}
+
+@app.post("/send-selected-mails")
+def send_selected(sender: str = Form(...), password: str = Form(...)):
+
+    cursor.execute("SELECT name, email FROM candidates WHERE status='Selected'")
+    rows = cursor.fetchall()
+
+    count = 0
+
+    for name, email in rows:
+        subject = "🎉 Congratulations - Selected"
+        body = selected_template(name)
+
+        if send_email(sender, password, email, subject, body):
+            count += 1
+
+    return {"message": f"{count} selected mails sent"}
+
+@app.post("/send-rejected-mails")
+def send_rejected(sender: str = Form(...), password: str = Form(...)):
+
+    cursor.execute("SELECT name, email FROM candidates WHERE status='Rejected'")
+    rows = cursor.fetchall()
+
+    count = 0
+
+    for name, email in rows:
+        subject = "Application Update"
+        body = rejected_template(name)
+
+        if send_email(sender, password, email, subject, body):
+            count += 1
+
+    return {"message": f"{count} rejected mails sent"}
+
+@app.post("/send-selected-mails")
+def send_selected_api(sender: str = Form(...), password: str = Form(...)):
+    return {"message": send_selected(sender, password)}
+
+
+@app.post("/send-rejected-mails")
+def send_rejected_api(sender: str = Form(...), password: str = Form(...)):
+    return {"message": send_rejected(sender, password)}
+
+@app.put("/candidate/{candidate_id}")
+def update_status(candidate_id: str, status: str = Form(...)):
+
+    cursor.execute("""
+    UPDATE candidates
+    SET status=?
+    WHERE id=?
+    """, (status, candidate_id))
+
+    conn.commit()
+
+    return {"message": "Status updated"}
