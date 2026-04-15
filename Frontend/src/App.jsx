@@ -10,6 +10,8 @@ import AptitudeRound from "./pages/AptitudeRound";
 import TechnicalRound from "./pages/TechnicalRound";
 import CodingRound from "./pages/CodingRound";
 import HRRound from "./pages/HRRound";
+import SelectedCandidates from "./pages/SelectedCandidates";
+
 
 const Analytics = () => (
   <div className="p-6 text-xl">📊 Analytics Page</div>
@@ -41,6 +43,7 @@ export default function App() {
             <Route path="/technical" element={<TechnicalRound />} />
             <Route path="/coding" element={<CodingRound />} />
             <Route path="/hr-round" element={<HRRound />} />
+            <Route path="/selected" element={<SelectedCandidates />} />
 
             {/* REPORT */}
             <Route path="/analytics" element={<Analytics />} />

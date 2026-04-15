@@ -7,23 +7,28 @@ export default function Candidates() {
   const [statusFilter, setStatusFilter] = useState("All");
 
   const [loadingAI, setLoadingAI] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // MODAL
   const [showModal, setShowModal] = useState(false);
-  const [mailType, setMailType] = useState("");
   const [hrEmail, setHrEmail] = useState("");
   const [hrPassword, setHrPassword] = useState("");
 
   // ===============================
-  // FETCH
+  // FETCH DATA
   // ===============================
   const fetchCandidates = async () => {
     try {
+      setLoading(true);
+
       const res = await fetch("http://127.0.0.1:8000/candidates");
       const data = await res.json();
+
       setCandidates(data.data || []);
     } catch {
       alert("❌ Failed to fetch candidates");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -57,7 +62,7 @@ export default function Candidates() {
 
       fetchCandidates();
     } catch {
-      alert("❌ Failed to update status");
+      alert("❌ Failed to update");
     }
   };
 
@@ -72,7 +77,7 @@ export default function Candidates() {
         method: "POST"
       });
 
-      alert("🤖 AI Selection Completed!");
+      alert("🤖 AI Completed");
       fetchCandidates();
     } catch {
       alert("❌ AI failed");
@@ -82,30 +87,20 @@ export default function Candidates() {
   };
 
   // ===============================
-  // MAIL
+  // SEND MAIL
   // ===============================
-  const openMailModal = (type) => {
-    setMailType(type);
-    setShowModal(true);
-  };
-
   const sendMail = async () => {
     try {
       const formData = new FormData();
       formData.append("sender", hrEmail);
       formData.append("password", hrPassword);
 
-      const url =
-        mailType === "selected"
-          ? "http://127.0.0.1:8000/send-selected-mails"
-          : "http://127.0.0.1:8000/send-rejected-mails";
-
-      await fetch(url, {
+      await fetch("http://127.0.0.1:8000/send-mails", {
         method: "POST",
         body: formData
       });
 
-      alert("✅ Mail sent successfully!");
+      alert("✅ Mails sent successfully!");
 
       setShowModal(false);
       setHrEmail("");
@@ -119,148 +114,167 @@ export default function Candidates() {
   };
 
   return (
-    <div className="flex-1 p-8 bg-[#0b1220] min-h-screen text-white">
+    <div className="flex-1 bg-[#0b1220] text-white min-h-screen">
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-semibold">Candidates</h1>
+      {/* 🔥 STICKY HEADER */}
+      <div className="sticky top-0 z-10 bg-[#0b1220] p-6 border-b border-gray-800">
 
-        <button
-          onClick={aiSelect}
-          className="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-xl"
-        >
-          {loadingAI ? "Processing..." : "🤖 AI Smart Selection"}
-        </button>
+        <div className="flex justify-between items-center">
+
+          <h1 className="text-3xl font-bold">Candidates</h1>
+
+          <div className="flex gap-3">
+
+            {/* SEND MAIL */}
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-2 rounded-xl font-semibold shadow-lg hover:opacity-90"
+            >
+              📧 Send Mail ({selectedCount + rejectedCount})
+            </button>
+
+            {/* AI BUTTON */}
+            <button
+              onClick={aiSelect}
+              className="bg-purple-600 hover:bg-purple-700 px-5 py-2 rounded-xl"
+            >
+              {loadingAI ? "Processing..." : "🤖 AI Select"}
+            </button>
+
+          </div>
+        </div>
       </div>
 
-      {/* STATS */}
-      <div className="grid grid-cols-3 gap-6 mb-8">
-        <Stat title="Total" value={filtered.length} />
-        <Stat title="Selected" value={selectedCount} green />
-        <Stat title="Rejected" value={rejectedCount} red />
+      <div className="p-6">
+
+        {/* STATS */}
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <Stat title="Total" value={filtered.length} />
+          <Stat title="Selected" value={selectedCount} green />
+          <Stat title="Rejected" value={rejectedCount} red />
+        </div>
+
+        {/* FILTER */}
+        <div className="flex gap-4 mb-6">
+
+          <select
+            value={domainFilter}
+            onChange={(e) => setDomainFilter(e.target.value)}
+            className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
+          >
+            <option>All</option>
+            <option>ML</option>
+            <option>Web</option>
+            <option>Data Science</option>
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
+          >
+            <option>All</option>
+            <option>Pending</option>
+            <option>Selected</option>
+            <option>Rejected</option>
+          </select>
+
+        </div>
+
+        {/* TABLE */}
+        <div className="bg-[#111827] rounded-xl border border-gray-800 overflow-hidden">
+
+          {loading ? (
+            <div className="p-6 text-center text-gray-400">
+              Loading candidates...
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              No candidates found
+            </div>
+          ) : (
+
+            <table className="w-full text-sm">
+
+              <thead className="bg-[#1f2937] text-gray-400">
+                <tr>
+                  <th className="p-4 text-left">Name</th>
+                  <th>Email</th>
+                  <th className="text-center">Phone</th>
+                  <th className="text-center">Domain</th>
+                  <th className="text-center">Score</th>
+                  <th className="text-center">Status</th>
+                  <th className="text-center">Resume</th>
+                  <th className="text-center">Action</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filtered.map(c => (
+                  <tr key={c.id} className="border-t border-gray-700 hover:bg-[#0f172a]">
+
+                    <td className="p-4">{c.name}</td>
+                    <td>{c.email}</td>
+                    <td className="text-center">{c.phone}</td>
+                    <td className="text-center">{c.domain}</td>
+                    <td className="text-center font-semibold">{c.score}%</td>
+
+                    <td className="text-center">
+                      <span className={`px-3 py-1 rounded-full text-xs ${
+                        c.status === "Selected"
+                          ? "bg-green-500/20 text-green-400"
+                          : c.status === "Rejected"
+                          ? "bg-red-500/20 text-red-400"
+                          : "bg-gray-500/20"
+                      }`}>
+                        {c.status}
+                      </span>
+                    </td>
+
+                    <td className="text-center">
+                      <a
+                        href={c.resume_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        View
+                      </a>
+                    </td>
+
+                    <td className="text-center space-x-2">
+                      <button
+                        onClick={() => updateStatus(c.id, "Selected")}
+                        className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs"
+                      >
+                        Select
+                      </button>
+
+                      <button
+                        onClick={() => updateStatus(c.id, "Rejected")}
+                        className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs"
+                      >
+                        Reject
+                      </button>
+                    </td>
+
+                  </tr>
+                ))}
+              </tbody>
+
+            </table>
+          )}
+        </div>
       </div>
 
-      {/* FILTER */}
-      <div className="flex gap-4 mb-6">
-        <select
-          value={domainFilter}
-          onChange={(e) => setDomainFilter(e.target.value)}
-          className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
-        >
-          <option>All</option>
-          <option>ML</option>
-          <option>Web</option>
-          <option>Data Science</option>
-        </select>
-
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-[#111827] px-4 py-2 rounded border border-gray-700"
-        >
-          <option>All</option>
-          <option>Pending</option>
-          <option>Selected</option>
-          <option>Rejected</option>
-        </select>
-      </div>
-
-      {/* TABLE */}
-      <div className="bg-[#111827] rounded-xl border border-gray-800 overflow-hidden">
-
-        <table className="w-full text-sm">
-
-          <thead className="bg-[#1f2937] text-gray-400">
-            <tr>
-              <th className="p-4 text-left">Name</th>
-              <th className="p-4 text-left">Email</th>
-              <th className="p-4 text-center">Phone</th>
-              <th className="p-4 text-center">Domain</th>
-              <th className="p-4 text-center">Score</th>
-              <th className="p-4 text-center">Status</th>
-              <th className="p-4 text-center">Resume</th>
-              <th className="p-4 text-center">Action</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filtered.map(c => (
-              <tr key={c.id} className="border-t border-gray-700 hover:bg-[#0f172a]">
-
-                <td className="p-4">{c.name}</td>
-                <td>{c.email}</td>
-                <td className="text-center">{c.phone}</td>
-                <td className="text-center">{c.domain}</td>
-                <td className="text-center font-semibold">{c.score || 0}%</td>
-
-                <td className="text-center">
-                  <span className={`px-3 py-1 rounded-full text-xs ${
-                    c.status === "Selected"
-                      ? "bg-green-500/20 text-green-400"
-                      : c.status === "Rejected"
-                      ? "bg-red-500/20 text-red-400"
-                      : "bg-gray-500/20"
-                  }`}>
-                    {c.status}
-                  </span>
-                </td>
-
-                <td className="text-center">
-                  <a href={c.resume_url} target="_blank" className="text-blue-400 hover:underline">
-                    View
-                  </a>
-                </td>
-
-                <td className="text-center space-x-2">
-                  <button
-                    onClick={() => updateStatus(c.id, "Selected")}
-                    className="bg-green-600 px-3 py-1 rounded text-xs"
-                  >
-                    Select
-                  </button>
-
-                  <button
-                    onClick={() => updateStatus(c.id, "Rejected")}
-                    className="bg-red-600 px-3 py-1 rounded text-xs"
-                  >
-                    Reject
-                  </button>
-                </td>
-
-              </tr>
-            ))}
-          </tbody>
-
-        </table>
-      </div>
-
-      {/* ✅ MAIL BUTTONS (VISIBLE NOW) */}
-      <div className="flex gap-4 mt-8">
-        <button
-          onClick={() => openMailModal("selected")}
-          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg"
-        >
-          Send Selected Mail ({selectedCount})
-        </button>
-
-        <button
-          onClick={() => openMailModal("rejected")}
-          className="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-lg"
-        >
-          Send Rejection Mail ({rejectedCount})
-        </button>
-      </div>
-
-      {/* ✅ MODAL */}
+      {/* MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center">
 
-          <div className="bg-[#111827] p-6 rounded-xl w-96 shadow-2xl">
+          <div className="bg-[#111827] p-6 rounded-xl w-96 shadow-xl">
 
             <h2 className="text-lg font-semibold mb-4 text-center">
-              {mailType === "selected"
-                ? "Send Selected Mail"
-                : "Send Rejection Mail"}
+              Send Mail
             </h2>
 
             <input
@@ -298,11 +312,14 @@ export default function Candidates() {
 
         </div>
       )}
+
     </div>
   );
 }
 
-/* CARD */
+// ===============================
+// STAT CARD
+// ===============================
 function Stat({ title, value, green, red }) {
   return (
     <div className={`p-6 rounded-xl border ${

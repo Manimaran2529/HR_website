@@ -2,106 +2,129 @@ import smtplib
 from email.mime.text import MIMEText
 import sqlite3
 
-# DB
+# ===============================
+# ✅ DATABASE
+# ===============================
 conn = sqlite3.connect("candidates.db", check_same_thread=False)
 cursor = conn.cursor()
 
 
 # ===============================
-# ✅ SEND MAIL FUNCTION
+# ✅ EMAIL SENDER
 # ===============================
 def send_email(sender, password, receiver, subject, body):
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = receiver
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = receiver
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
 
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(sender, password)
+        server.sendmail(sender, receiver, msg.as_string())
+        server.quit()
 
-    server.sendmail(sender, receiver, msg.as_string())
-    server.quit()
+        return True
+
+    except Exception as e:
+        print("❌ Mail failed:", e)
+        return False
 
 
 # ===============================
-# ✅ SEND SELECTED MAILS
+# ✅ MAIL TEMPLATES
 # ===============================
-def send_selected(sender, password):
+# ===============================
+# 🎯 AUTO ROLE MAPPING
+# ===============================
+def get_role(domain):
+    mapping = {
+        "ML": "Machine Learning Engineer",
+        "Web": "Full Stack Developer",
+        "Data Science": "Data Analyst"
+    }
+    return mapping.get(domain, "Software Engineer")
 
-    cursor.execute("SELECT name, email FROM candidates WHERE status='Selected'")
-    rows = cursor.fetchall()
 
-    for name, email in rows:
+# ===============================
+# ✅ SELECTED MAIL TEMPLATE
+# ===============================
+def selected_template(name, domain):
+    role = get_role(domain)
+    company = "Nikitha Build Tech"
 
-        subject = "Congratulations! You are Selected 🎉"
-        body = f"""
+    return f"""
 Dear {name},
 
-We are happy to inform you that you have been selected.
+Thank you for your interest in the {role} position at {company}.
 
-We will contact you soon with further details.
+We are pleased to inform you that your profile has been shortlisted, and you have been selected to move forward to the next stage of our recruitment process.
 
-Best Regards,
-HR Team
+Our team will share further details regarding the next round, including the schedule and instructions, shortly.
+
+We appreciate your effort and look forward to continuing the process with you.
+
+Best regards,  
+HR Team  
+{company}
 """
 
-        send_email(sender, password, email, subject, body)
-
-    return "Selected mails sent"
-
 
 # ===============================
-# ❌ SEND REJECTED MAILS + DELETE
+# ❌ REJECTED MAIL TEMPLATE
 # ===============================
-def send_rejected(sender, password):
+def rejected_template(name, domain):
+    role = get_role(domain)
+    company = "Nikitha Build Tech"
 
-    cursor.execute("SELECT name, email FROM candidates WHERE status='Rejected'")
-    rows = cursor.fetchall()
-
-    for name, email in rows:
-
-        subject = "Application Update"
-        body = f"""
+    return f"""
 Dear {name},
 
-Thank you for applying.
+Thank you for your interest in the {role} position at {company}.
 
-Unfortunately, you are not selected.
+We appreciate the time and effort you invested in your application. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.
 
-We wish you all the best.
+We encourage you to apply again in the future for roles that match your skills and experience.
 
-Best Regards,
-HR Team
+We wish you all the best in your career.
+
+Best regards,  
+HR Team  
+{company}
 """
 
-        send_email(sender, password, email, subject, body)
+# ===============================
+# 🚀 SEND ALL MAILS (MAIN FUNCTION)
+# ===============================
+def send_all_mails(sender, password):
 
-    # 🔥 DELETE AFTER MAIL
+    cursor.execute("SELECT id, name, email, status FROM candidates")
+    rows = cursor.fetchall()
+
+    sent_count = 0
+
+    for id, name, email, status in rows:
+
+        if status == "Selected":
+            subject = "🎉 Congratulations! You are Selected"
+            body = selected_template(name)
+
+        elif status == "Rejected":
+            subject = "Application Update"
+            body = rejected_template(name)
+
+        else:
+            continue  # skip pending
+
+        success = send_email(sender, password, email, subject, body)
+
+        if success:
+            sent_count += 1
+
+    # 🔥 DELETE REJECTED AFTER MAIL
     cursor.execute("DELETE FROM candidates WHERE status='Rejected'")
     conn.commit()
 
-    return "Rejected mails sent & removed"
-
-def selected_template(name):
-    return f"""
-Dear {name},
-
-Congratulations! You are selected 🎉
-
-Best Regards,
-HR Team
-"""
-
-def rejected_template(name):
-    return f"""
-Dear {name},
-
-Thank you for applying.
-
-Unfortunately, you are not selected.
-
-Best Regards,
-HR Team
-"""
+    return f"✅ {sent_count} mails sent successfully"

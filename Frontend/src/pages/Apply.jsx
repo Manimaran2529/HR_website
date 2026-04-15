@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export default function Apply() {
+
+  const fileRef = useRef(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -13,15 +15,18 @@ export default function Apply() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // ===============================
+  // SUBMIT
+  // ===============================
   const handleSubmit = async () => {
 
     if (!form.name || !form.email || !form.phone || !form.file) {
-      alert("Please fill all fields");
+      alert("⚠️ Please fill all fields");
       return;
     }
 
-    if (!form.file.name.endsWith(".pdf")) {
-      alert("Only PDF allowed");
+    if (!form.file.name.toLowerCase().endsWith(".pdf")) {
+      alert("⚠️ Only PDF allowed");
       return;
     }
 
@@ -34,14 +39,22 @@ export default function Apply() {
 
     try {
       setLoading(true);
+      setSuccess(false);
 
       const res = await fetch("http://127.0.0.1:8000/upload", {
         method: "POST",
         body: data
       });
 
-      if (!res.ok) throw new Error();
+      const result = await res.json();
 
+      // ✅ HANDLE BACKEND ERROR MESSAGE
+      if (!res.ok) {
+        alert(result.detail || "❌ Upload failed");
+        return;
+      }
+
+      // ✅ SUCCESS
       setSuccess(true);
 
       setForm({
@@ -52,8 +65,13 @@ export default function Apply() {
         file: null
       });
 
+      // 🔥 RESET FILE INPUT
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
+
     } catch (err) {
-      alert("❌ Upload failed");
+      alert("❌ Server error");
     } finally {
       setLoading(false);
     }
@@ -78,7 +96,7 @@ export default function Apply() {
           <div className="bg-green-600 text-white p-3 rounded mb-4 text-center text-sm">
             ✅ Application submitted successfully! <br />
             <span className="text-xs">
-              We will reach you soon. Thank you for applying 🙌
+              We will contact you soon 🙌
             </span>
           </div>
         )}
@@ -90,7 +108,7 @@ export default function Apply() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder="Enter your name"
-            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600 focus:border-blue-500"
+            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600 focus:border-blue-500 outline-none"
           />
         </div>
 
@@ -102,7 +120,7 @@ export default function Apply() {
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             placeholder="Enter your email"
-            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600"
+            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600 outline-none"
           />
         </div>
 
@@ -113,7 +131,7 @@ export default function Apply() {
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             placeholder="Enter phone number"
-            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600"
+            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600 outline-none"
           />
         </div>
 
@@ -123,7 +141,7 @@ export default function Apply() {
           <select
             value={form.domain}
             onChange={(e) => setForm({ ...form, domain: e.target.value })}
-            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600"
+            className="w-full mt-1 p-2 bg-[#0f172a] rounded-lg border border-gray-600 outline-none"
           >
             <option value="ML">ML</option>
             <option value="Web">Web</option>
@@ -133,9 +151,12 @@ export default function Apply() {
 
         {/* FILE */}
         <div className="mb-4">
-          <label className="text-sm text-gray-400">Upload Resume (PDF)</label>
+          <label className="text-sm text-gray-400">
+            Upload Resume (PDF)
+          </label>
 
           <input
+            ref={fileRef}
             type="file"
             accept=".pdf"
             onChange={(e) =>
@@ -155,13 +176,16 @@ export default function Apply() {
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg font-medium transition"
+          className={`w-full py-2 rounded-lg font-medium transition ${
+            loading
+              ? "bg-gray-600 cursor-not-allowed"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
           {loading ? "Uploading..." : "Submit Application"}
         </button>
 
       </div>
-
     </div>
   );
 }
