@@ -1,21 +1,21 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from datetime import datetime
-import shutil
-import os
-import uuid
-import sqlite3
+from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+
+import shutil, os, uuid, sqlite3
 from PyPDF2 import PdfReader
 
-from mail import (
-    send_email,
-    selected_template,
-    rejected_template,
-    send_aptitude_mails
-)
+from mail import send_email, selected_template, rejected_template
 
 app = FastAPI()
+
+# ===============================
+# 🔐 GLOBAL HR EMAIL STORAGE
+# ===============================
+HR_EMAIL = None
+HR_PASSWORD = None
 
 # ===============================
 # ✅ CORS
@@ -48,8 +48,9 @@ CREATE TABLE IF NOT EXISTS candidates (
     created_at TEXT,
 
     aptitude_date TEXT,
-    technical_date TEXT,
-    coding_date TEXT
+    aptitude_score INTEGER DEFAULT 0,
+    aptitude_status TEXT DEFAULT 'Pending',
+    aptitude_link_sent INTEGER DEFAULT 0
 )
 """)
 conn.commit()
@@ -72,87 +73,107 @@ async def upload_resume(
     domain: str = Form(...),
     resume: UploadFile = File(...)
 ):
-
     if not resume.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF allowed")
 
-    cursor.execute("SELECT * FROM candidates WHERE email=?", (email,))
-    if cursor.fetchone():
-        raise HTTPException(status_code=400, detail="Already applied")
-
     file_id = str(uuid.uuid4())
     file_name = f"{file_id}.pdf"
-    file_path = os.path.join(UPLOAD_FOLDER, file_name)
+    path = os.path.join(UPLOAD_FOLDER, file_name)
 
-    with open(file_path, "wb") as buffer:
+    with open(path, "wb") as buffer:
         shutil.copyfileobj(resume.file, buffer)
 
     cursor.execute("""
-    INSERT INTO candidates 
-    (id, name, email, phone, domain, resume_url, status, score, stage, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO candidates (
+        id, name, email, phone, domain, resume_url,
+        status, score, stage, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        file_id,
-        name,
-        email,
-        phone,
-        domain,
+        file_id, name, email, phone, domain,
         f"http://127.0.0.1:8000/uploads/{file_name}",
-        "Pending",
-        0,
-        "Resume",
+        "Pending", 0, "Resume",
         datetime.now().strftime("%Y-%m")
     ))
 
     conn.commit()
-
-    return {"message": "✅ Resume uploaded"}
+    return {"message": "✅ Uploaded"}
 
 # ===============================
-# 📋 GET RESUME PAGE
+# 📋 GET RESUME
 # ===============================
 @app.get("/candidates")
 def get_candidates():
-
-    cursor.execute("SELECT * FROM candidates WHERE stage='Resume'")
+    cursor.execute("""
+    SELECT * FROM candidates 
+    WHERE stage='Resume'
+    ORDER BY score DESC
+    """)
     rows = cursor.fetchall()
 
-    data = []
-    for r in rows:
-        data.append({
-            "id": r[0],
-            "name": r[1],
-            "email": r[2],
-            "phone": r[3],
-            "domain": r[4],
-            "resume_url": r[5],
-            "status": r[6],
-            "score": r[7]
-        })
-
-    return {"data": data}
+    return {
+        "data": [
+            {
+                "id": r[0],
+                "name": r[1],
+                "email": r[2],
+                "phone": r[3],
+                "domain": r[4],
+                "resume_url": r[5],
+                "status": r[6],
+                "score": r[7]
+            }
+            for r in rows
+        ]
+    }
 
 # ===============================
-# 🤖 AI SELECT
+# 📄 EXTRACT TEXT
 # ===============================
 def extract_text(path):
     reader = PdfReader(path)
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
+    for p in reader.pages:
+        text += p.extract_text() or ""
     return text.lower()
 
-def analyze(text):
-    score = 50
-    if "python" in text: score += 10
-    if "react" in text: score += 10
-    if "sql" in text: score += 10
-    if "internship" in text: score += 10
-    return score, "Selected" if score >= 70 else "Rejected"
+# ===============================
+# 🤖 ATS LOGIC
+# ===============================
+def analyze_resume(text, domain):
+    score = 0
 
+    if domain == "ML":
+        if "python" in text: score += 20
+        if "machine learning" in text: score += 25
+        if "tensorflow" in text: score += 20
+
+    elif domain == "Web":
+        if "html" in text and "css" in text: score += 15
+        if "javascript" in text: score += 20
+        if "react" in text: score += 25
+
+    elif domain == "Data Science":
+        if "python" in text: score += 15
+        if "pandas" in text: score += 20
+        if "numpy" in text: score += 20
+
+    if "internship" in text: score += 20
+    if "project" in text: score += 15
+
+    score = min(score, 100)
+
+    if score >= 80:
+        return score, "Selected"
+    elif score >= 60:
+        return score, "Review"
+    else:
+        return score, "Rejected"
+
+# ===============================
+# 🤖 AI SELECT
+# ===============================
 @app.post("/ai-select")
 def ai_select():
-
     cursor.execute("SELECT * FROM candidates WHERE stage='Resume'")
     rows = cursor.fetchall()
 
@@ -163,7 +184,7 @@ def ai_select():
             continue
 
         text = extract_text(file_path)
-        score, status = analyze(text)
+        score, status = analyze_resume(text, r[4])
 
         cursor.execute(
             "UPDATE candidates SET score=?, status=? WHERE id=?",
@@ -171,183 +192,172 @@ def ai_select():
         )
 
     conn.commit()
-    return {"message": "AI Done"}
+    return {"message": "🎯 ATS Completed"}
 
 # ===============================
-# ✏️ MANUAL STATUS UPDATE
-# ===============================
-@app.put("/candidate/{id}")
-def update_status(id: str, status: str = Form(...)):
-
-    cursor.execute("UPDATE candidates SET status=? WHERE id=?", (status, id))
-    conn.commit()
-
-    return {"message": "Updated"}
-
-# ===============================
-# 📧 SEND MAIL + MOVE / DELETE
+# 📧 SEND MAIL + MOVE
 # ===============================
 @app.post("/send-mails")
 def send_mails(sender: str = Form(...), password: str = Form(...)):
 
-    cursor.execute("""
-    SELECT id, name, email, domain, status 
-    FROM candidates 
-    WHERE stage='Resume'
-    """)
-
+    cursor.execute("SELECT id, name, email, domain, status FROM candidates WHERE stage='Resume'")
     rows = cursor.fetchall()
-
-    selected_ids = []
-    rejected_ids = []
 
     for id, name, email, domain, status in rows:
 
         if status == "Selected":
-            send_email(sender, password, email,
-                       "🎉 Selected",
-                       selected_template(name, domain))
-            selected_ids.append(id)
+            send_email(sender, password, email, "Selected", selected_template(name, domain))
+            cursor.execute("UPDATE candidates SET stage='Aptitude' WHERE id=?", (id,))
 
         elif status == "Rejected":
-            send_email(sender, password, email,
-                       "Application Update",
-                       rejected_template(name, domain))
-            rejected_ids.append(id)
-
-    # ✅ MOVE TO APTITUDE
-    for id in selected_ids:
-        cursor.execute("UPDATE candidates SET stage='Aptitude' WHERE id=?", (id,))
-
-    # ❌ DELETE REJECTED
-    for id in rejected_ids:
-        cursor.execute("DELETE FROM candidates WHERE id=?", (id,))
+            send_email(sender, password, email, "Rejected", rejected_template(name, domain))
+            cursor.execute("DELETE FROM candidates WHERE id=?", (id,))
 
     conn.commit()
-
-    return {
-        "selected_moved": len(selected_ids),
-        "rejected_removed": len(rejected_ids)
-    }
+    return {"message": "Emails processed"}
 
 # ===============================
 # 📅 SCHEDULE APTITUDE
 # ===============================
 @app.put("/schedule-aptitude")
 def schedule_aptitude(
-    domain: str = Form(...),
     test_date: str = Form(...),
     sender: str = Form(...),
     password: str = Form(...)
 ):
+    global HR_EMAIL, HR_PASSWORD
+    HR_EMAIL = sender
+    HR_PASSWORD = password
 
     cursor.execute("""
     UPDATE candidates
-    SET aptitude_date=?
-    WHERE stage='Aptitude' AND domain=?
-    """, (test_date, domain))
+    SET aptitude_date=?, aptitude_link_sent=0
+    WHERE stage='Aptitude'
+    """, (test_date,))
+    conn.commit()
+
+    cursor.execute("SELECT name, email FROM candidates WHERE stage='Aptitude'")
+    candidates = cursor.fetchall()
+
+    for name, email in candidates:
+
+        subject = "📢 Aptitude Test Schedule – Nikitha Build Tech"
+
+        body = f"""
+Dear {name},
+
+Greetings from Nikitha Build Tech.
+
+We are pleased to inform you that you have been shortlisted for the next stage of our recruitment process.
+
+🧠 APTITUDE TEST DETAILS
+----------------------------------------
+📅 Date & Time : {test_date}
+🌐 Mode        : Online Assessment
+
+🔔 IMPORTANT INSTRUCTIONS
+----------------------------------------
+• Please join the test 20 minutes before the scheduled time  
+• Ensure a stable internet connection  
+• Your camera must remain ON throughout the test  
+• Do NOT switch tabs or windows during the assessment  
+• Any suspicious activity may lead to immediate disqualification  
+• Do not use mobile phones or external help  
+
+🔗 The test link will be shared 1 hour before the test
+
+⚠️ NOTE
+----------------------------------------
+Failure to follow the instructions may result in disqualification.
+
+We wish you all the best for your assessment.
+
+Best regards,  
+HR Team  
+Nikitha Build Tech
+"""
+
+        send_email(sender, password, email, subject, body)
+
+    return {"message": "✅ Scheduled"}
+
+# ===============================
+# ⏰ AUTO TEST LINK
+# ===============================
+def send_test_links():
+
+    if not HR_EMAIL or not HR_PASSWORD:
+        return
+
+    now = datetime.now()
+
+    cursor.execute("""
+    SELECT id, name, email, aptitude_date, aptitude_link_sent
+    FROM candidates WHERE stage='Aptitude'
+    """)
+
+    for id, name, email, date, sent in cursor.fetchall():
+
+        if not date or sent == 1:
+            continue
+
+        test_time = datetime.fromisoformat(date)
+
+        if now >= test_time - timedelta(hours=1):
+
+            send_email(
+                HR_EMAIL,
+                HR_PASSWORD,
+                email,
+                "Aptitude Test Link",
+                f"""Dear {name},
+
+Your test is starting soon.
+
+🔗 http://localhost:5173/test/aptitude
+
+Best of luck!
+
+HR Team
+"""
+            )
+
+            cursor.execute("""
+            UPDATE candidates SET aptitude_link_sent=1 WHERE id=?
+            """, (id,))
 
     conn.commit()
 
-    result = send_aptitude_mails(sender, password, test_date)
-
-    return {"message": result}
-
 # ===============================
-# 📊 PROGRESS PAGE DATA
+# 📊 PROGRESS
 # ===============================
-@app.get("/progress-data")
-def progress_data():
-
-    data = {
-        "aptitude": [],
-        "technical": [],
-        "coding": [],
-        "hr": []
-    }
-
-    cursor.execute("SELECT * FROM candidates")
-    rows = cursor.fetchall()
-
-    for r in rows:
-
-        stage = r[8]  # ✅ correct index for stage
-
-        candidate = {
-            "id": r[0],
-            "name": r[1],
-            "email": r[2],
-            "domain": r[4],
-            "status": r[6],
-            "score": r[7],
-            "aptitude_date": r[11],   # ✅ correct column
-            "technical_date": r[14],
-            "coding_date": r[17]
-        }
-
-        if stage == "Aptitude":
-            data["aptitude"].append(candidate)
-
-        elif stage == "Technical":
-            data["technical"].append(candidate)
-
-        elif stage == "Coding":
-            data["coding"].append(candidate)
-
-        elif stage == "HR":
-            data["hr"].append(candidate)
-
-    return data
-
 @app.get("/aptitude-candidates")
 def get_aptitude_candidates():
 
     cursor.execute("""
     SELECT id, name, email, domain, aptitude_score, aptitude_status
-    FROM candidates
-    WHERE stage='Aptitude'
+    FROM candidates WHERE stage='Aptitude'
     """)
 
     rows = cursor.fetchall()
 
-    data = []
-    for r in rows:
-        data.append({
-            "id": r[0],
-            "name": r[1],
-            "email": r[2],
-            "domain": r[3],
-            "score": r[4],
-            "status": r[5]
-        })
+    return {
+        "data": [
+            {
+                "id": r[0],
+                "name": r[1],
+                "email": r[2],
+                "domain": r[3],
+                "score": r[4],
+                "status": r[5]
+            }
+            for r in rows
+        ]
+    }
 
-    return {"data": data}
-
-@app.put("/update-aptitude/{id}")
-def update_aptitude(
-    id: str,
-    score: int = Form(...),
-    status: str = Form(...)
-):
-    cursor.execute("""
-    UPDATE candidates
-    SET aptitude_score=?, aptitude_status=?
-    WHERE id=?
-    """, (score, status, id))
-
-    conn.commit()
-
-    return {"message": "Updated"}
-
-@app.put("/move-to-technical")
-def move_to_technical():
-
-    cursor.execute("""
-    UPDATE candidates
-    SET stage='Technical'
-    WHERE aptitude_status='Pass'
-    """)
-
-    conn.commit()
-
-    return {"message": "Moved to Technical"}
+# ===============================
+# 🔥 SCHEDULER
+# ===============================
+scheduler = BackgroundScheduler()
+scheduler.add_job(send_test_links, "interval", minutes=1)
+scheduler.start()

@@ -52,13 +52,26 @@ def selected_template(name, domain):
     role = get_role(domain)
 
     return f"""
+Subject: Application Update – {role} Role
+
 Dear {name},
 
-Congratulations! 🎉
+Greetings from Nikitha Build Tech.
 
-You have been shortlisted for the {role} position.
+We are pleased to inform you that your application for the position of **{role}** has been successfully shortlisted.
 
-Our team will contact you with the next round details soon.
+🎉 **Congratulations!**
+
+You have been selected to proceed to the next stage of our recruitment process.
+
+Our team will share further details regarding:
+• Next round schedule  
+• Assessment instructions  
+• Interview guidelines  
+
+📩 Please keep an eye on your email for upcoming communication.
+
+We appreciate your interest in joining Nikitha Build Tech and wish you continued success in the next stage.
 
 Best regards,  
 HR Team  
@@ -73,19 +86,28 @@ def rejected_template(name, domain):
     role = get_role(domain)
 
     return f"""
+Subject: Application Update – {role} Role
+
 Dear {name},
 
-Thank you for applying for the {role} position.
+Greetings from Nikitha Build Tech.
 
-After careful review, we regret to inform you that we will not proceed further with your application.
+Thank you for your interest in the **{role}** position and for taking the time to apply with us.
 
-We wish you success in your future career.
+After careful evaluation of your profile, we regret to inform you that we will not be proceeding further with your application at this time.
+
+This decision was not easy, as we received many strong applications.
+
+We encourage you to:
+• Continue developing your skills  
+• Apply again for future opportunities that match your profile  
+
+We sincerely appreciate your interest in our organization and wish you all the very best in your career journey.
 
 Best regards,  
 HR Team  
 Nikitha Build Tech
 """
-
 
 # ===============================
 # 📘 APTITUDE SCHEDULE MAIL

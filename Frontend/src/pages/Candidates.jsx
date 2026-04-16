@@ -75,10 +75,16 @@ export default function Candidates() {
   };
 
   // ===============================
-  // SEND MAIL (MAIN LOGIC)
+  // SEND MAIL
   // ===============================
   const sendMail = async () => {
     try {
+
+      if (!hrEmail || !hrPassword) {
+        alert("Enter email & password");
+        return;
+      }
+
       const formData = new FormData();
       formData.append("sender", hrEmail);
       formData.append("password", hrPassword);
@@ -90,9 +96,7 @@ export default function Candidates() {
 
       const data = await res.json();
 
-      alert(
-        `✅ ${data.selected_moved} moved to progress\n❌ ${data.rejected_removed} removed`
-      );
+      alert(data.message);
 
       setShowModal(false);
       setHrEmail("");
@@ -111,17 +115,24 @@ export default function Candidates() {
       {/* HEADER */}
       <div className="sticky top-0 z-10 bg-[#0b1220] p-6 border-b border-gray-800 flex justify-between items-center">
 
-        <h1 className="text-3xl font-bold">📄 Resume Screening</h1>
+        <h1 className="text-3xl font-bold">📄 Apply Candiates </h1>
 
         <div className="flex gap-3">
 
+          {/* SEND MAIL */}
           <button
+            disabled={(selectedCount + rejectedCount) === 0}
             onClick={() => setShowModal(true)}
-            className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-2 rounded-xl font-semibold"
+            className={`px-6 py-2 rounded-xl font-semibold ${
+              (selectedCount + rejectedCount) === 0
+                ? "bg-gray-600 cursor-not-allowed"
+                : "bg-gradient-to-r from-blue-600 to-purple-600"
+            }`}
           >
             📧 Send Mail ({selectedCount + rejectedCount})
           </button>
 
+          {/* AI */}
           <button
             onClick={aiSelect}
             className="bg-purple-600 px-5 py-2 rounded-xl"
@@ -212,7 +223,7 @@ export default function Candidates() {
                           ? "bg-green-500/20 text-green-400"
                           : c.status === "Rejected"
                           ? "bg-red-500/20 text-red-400"
-                          : "bg-gray-500/20"
+                          : "bg-gray-500/20 text-gray-300"
                       }`}>
                         {c.status}
                       </span>
@@ -233,14 +244,14 @@ export default function Candidates() {
 
                       <button
                         onClick={() => updateStatus(c.id, "Selected")}
-                        className="bg-green-600 px-3 py-1 rounded text-xs"
+                        className="bg-green-600 px-3 py-1 rounded text-xs hover:bg-green-700"
                       >
                         Select
                       </button>
 
                       <button
                         onClick={() => updateStatus(c.id, "Rejected")}
-                        className="bg-red-600 px-3 py-1 rounded text-xs"
+                        className="bg-red-600 px-3 py-1 rounded text-xs hover:bg-red-700"
                       >
                         Reject
                       </button>
@@ -262,7 +273,9 @@ export default function Candidates() {
 
           <div className="bg-[#111827] p-6 rounded-xl w-96">
 
-            <h2 className="text-lg mb-4 text-center">Send Mail</h2>
+            <h2 className="text-lg mb-4 text-center font-semibold">
+              📧 Send Mail
+            </h2>
 
             <input
               placeholder="HR Gmail"
