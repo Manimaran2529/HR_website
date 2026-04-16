@@ -3,27 +3,24 @@ import { useEffect, useState } from "react";
 export default function Candidates() {
 
   const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingAI, setLoadingAI] = useState(false);
+
   const [domainFilter, setDomainFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  // MODAL
   const [showModal, setShowModal] = useState(false);
   const [hrEmail, setHrEmail] = useState("");
   const [hrPassword, setHrPassword] = useState("");
 
   // ===============================
-  // FETCH DATA
+  // FETCH
   // ===============================
   const fetchCandidates = async () => {
     try {
       setLoading(true);
-
       const res = await fetch("http://127.0.0.1:8000/candidates");
       const data = await res.json();
-
       setCandidates(data.data || []);
     } catch {
       alert("❌ Failed to fetch candidates");
@@ -51,19 +48,15 @@ export default function Candidates() {
   // UPDATE STATUS
   // ===============================
   const updateStatus = async (id, status) => {
-    try {
-      const formData = new FormData();
-      formData.append("status", status);
+    const formData = new FormData();
+    formData.append("status", status);
 
-      await fetch(`http://127.0.0.1:8000/candidate/${id}`, {
-        method: "PUT",
-        body: formData
-      });
+    await fetch(`http://127.0.0.1:8000/candidate/${id}`, {
+      method: "PUT",
+      body: formData
+    });
 
-      fetchCandidates();
-    } catch {
-      alert("❌ Failed to update");
-    }
+    fetchCandidates();
   };
 
   // ===============================
@@ -72,22 +65,17 @@ export default function Candidates() {
   const aiSelect = async () => {
     setLoadingAI(true);
 
-    try {
-      await fetch("http://127.0.0.1:8000/ai-select", {
-        method: "POST"
-      });
+    await fetch("http://127.0.0.1:8000/ai-select", {
+      method: "POST"
+    });
 
-      alert("🤖 AI Completed");
-      fetchCandidates();
-    } catch {
-      alert("❌ AI failed");
-    }
-
+    alert("🤖 AI Completed");
+    fetchCandidates();
     setLoadingAI(false);
   };
 
   // ===============================
-  // SEND MAIL
+  // SEND MAIL (MAIN LOGIC)
   // ===============================
   const sendMail = async () => {
     try {
@@ -95,12 +83,16 @@ export default function Candidates() {
       formData.append("sender", hrEmail);
       formData.append("password", hrPassword);
 
-      await fetch("http://127.0.0.1:8000/send-mails", {
+      const res = await fetch("http://127.0.0.1:8000/send-mails", {
         method: "POST",
         body: formData
       });
 
-      alert("✅ Mails sent successfully!");
+      const data = await res.json();
+
+      alert(
+        `✅ ${data.selected_moved} moved to progress\n❌ ${data.rejected_removed} removed`
+      );
 
       setShowModal(false);
       setHrEmail("");
@@ -116,32 +108,27 @@ export default function Candidates() {
   return (
     <div className="flex-1 bg-[#0b1220] text-white min-h-screen">
 
-      {/* 🔥 STICKY HEADER */}
-      <div className="sticky top-0 z-10 bg-[#0b1220] p-6 border-b border-gray-800">
+      {/* HEADER */}
+      <div className="sticky top-0 z-10 bg-[#0b1220] p-6 border-b border-gray-800 flex justify-between items-center">
 
-        <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">📄 Resume Screening</h1>
 
-          <h1 className="text-3xl font-bold">Candidates</h1>
+        <div className="flex gap-3">
 
-          <div className="flex gap-3">
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-2 rounded-xl font-semibold"
+          >
+            📧 Send Mail ({selectedCount + rejectedCount})
+          </button>
 
-            {/* SEND MAIL */}
-            <button
-              onClick={() => setShowModal(true)}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-2 rounded-xl font-semibold shadow-lg hover:opacity-90"
-            >
-              📧 Send Mail ({selectedCount + rejectedCount})
-            </button>
+          <button
+            onClick={aiSelect}
+            className="bg-purple-600 px-5 py-2 rounded-xl"
+          >
+            {loadingAI ? "Processing..." : "🤖 AI Select"}
+          </button>
 
-            {/* AI BUTTON */}
-            <button
-              onClick={aiSelect}
-              className="bg-purple-600 hover:bg-purple-700 px-5 py-2 rounded-xl"
-            >
-              {loadingAI ? "Processing..." : "🤖 AI Select"}
-            </button>
-
-          </div>
         </div>
       </div>
 
@@ -243,19 +230,21 @@ export default function Candidates() {
                     </td>
 
                     <td className="text-center space-x-2">
+
                       <button
                         onClick={() => updateStatus(c.id, "Selected")}
-                        className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs"
+                        className="bg-green-600 px-3 py-1 rounded text-xs"
                       >
                         Select
                       </button>
 
                       <button
                         onClick={() => updateStatus(c.id, "Rejected")}
-                        className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs"
+                        className="bg-red-600 px-3 py-1 rounded text-xs"
                       >
                         Reject
                       </button>
+
                     </td>
 
                   </tr>
@@ -271,17 +260,15 @@ export default function Candidates() {
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center">
 
-          <div className="bg-[#111827] p-6 rounded-xl w-96 shadow-xl">
+          <div className="bg-[#111827] p-6 rounded-xl w-96">
 
-            <h2 className="text-lg font-semibold mb-4 text-center">
-              Send Mail
-            </h2>
+            <h2 className="text-lg mb-4 text-center">Send Mail</h2>
 
             <input
               placeholder="HR Gmail"
               value={hrEmail}
               onChange={(e) => setHrEmail(e.target.value)}
-              className="w-full mb-3 p-3 rounded bg-[#0f172a] border border-gray-700"
+              className="w-full mb-3 p-3 rounded bg-[#0f172a]"
             />
 
             <input
@@ -289,7 +276,7 @@ export default function Candidates() {
               placeholder="App Password"
               value={hrPassword}
               onChange={(e) => setHrPassword(e.target.value)}
-              className="w-full mb-4 p-3 rounded bg-[#0f172a] border border-gray-700"
+              className="w-full mb-4 p-3 rounded bg-[#0f172a]"
             />
 
             <div className="flex justify-between">
@@ -309,13 +296,13 @@ export default function Candidates() {
             </div>
 
           </div>
-
         </div>
       )}
 
     </div>
   );
 }
+
 
 // ===============================
 // STAT CARD

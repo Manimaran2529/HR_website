@@ -34,10 +34,7 @@ def send_email(sender, password, receiver, subject, body):
 
 
 # ===============================
-# ✅ MAIL TEMPLATES
-# ===============================
-# ===============================
-# 🎯 AUTO ROLE MAPPING
+# 🎯 ROLE MAPPING
 # ===============================
 def get_role(domain):
     mapping = {
@@ -49,82 +46,194 @@ def get_role(domain):
 
 
 # ===============================
-# ✅ SELECTED MAIL TEMPLATE
+# ✅ SELECTED MAIL
 # ===============================
 def selected_template(name, domain):
     role = get_role(domain)
-    company = "Nikitha Build Tech"
 
     return f"""
 Dear {name},
 
-Thank you for your interest in the {role} position at {company}.
+Congratulations! 🎉
 
-We are pleased to inform you that your profile has been shortlisted, and you have been selected to move forward to the next stage of our recruitment process.
+You have been shortlisted for the {role} position.
 
-Our team will share further details regarding the next round, including the schedule and instructions, shortly.
-
-We appreciate your effort and look forward to continuing the process with you.
+Our team will contact you with the next round details soon.
 
 Best regards,  
 HR Team  
-{company}
+Nikitha Build Tech
 """
 
 
 # ===============================
-# ❌ REJECTED MAIL TEMPLATE
+# ❌ REJECTED MAIL
 # ===============================
 def rejected_template(name, domain):
     role = get_role(domain)
-    company = "Nikitha Build Tech"
 
     return f"""
 Dear {name},
 
-Thank you for your interest in the {role} position at {company}.
+Thank you for applying for the {role} position.
 
-We appreciate the time and effort you invested in your application. After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.
+After careful review, we regret to inform you that we will not proceed further with your application.
 
-We encourage you to apply again in the future for roles that match your skills and experience.
-
-We wish you all the best in your career.
+We wish you success in your future career.
 
 Best regards,  
 HR Team  
-{company}
+Nikitha Build Tech
 """
 
+
 # ===============================
-# 🚀 SEND ALL MAILS (MAIN FUNCTION)
+# 📘 APTITUDE SCHEDULE MAIL
+# ===============================
+def aptitude_schedule_template(name, domain, test_date):
+    role = get_role(domain)
+
+    return f"""
+Dear {name},
+
+Congratulations! 🎉
+
+You are selected for the Aptitude Round for the {role} role.
+
+📅 Test Date: {test_date}
+
+🔗 Test link will be shared 1 hour before the exam.
+
+Please be ready and ensure:
+- Stable internet
+- No tab switching
+- Camera ON
+
+All the best! 🚀
+
+HR Team  
+Nikitha Build Tech
+"""
+
+
+# ===============================
+# 🔗 APTITUDE TEST LINK MAIL
+# ===============================
+def aptitude_link_template(name):
+    return f"""
+Hi {name},
+
+Your Aptitude Test is starting now.
+
+🔗 Start Test:
+http://localhost:5173/test/aptitude
+
+⚠️ Rules:
+- Do not switch tabs
+- Camera must be ON
+- Any cheating → disqualification
+
+Best of luck 🚀
+
+HR Team
+"""
+
+
+# ===============================
+# 🚀 SEND ALL (RESUME RESULT MAIL)
 # ===============================
 def send_all_mails(sender, password):
 
-    cursor.execute("SELECT id, name, email, status FROM candidates")
+    cursor.execute("SELECT id, name, email, status, domain FROM candidates")
     rows = cursor.fetchall()
 
     sent_count = 0
 
-    for id, name, email, status in rows:
+    for id, name, email, status, domain in rows:
 
         if status == "Selected":
             subject = "🎉 Congratulations! You are Selected"
-            body = selected_template(name)
+            body = selected_template(name, domain)
 
         elif status == "Rejected":
             subject = "Application Update"
-            body = rejected_template(name)
+            body = rejected_template(name, domain)
 
         else:
-            continue  # skip pending
+            continue
 
         success = send_email(sender, password, email, subject, body)
 
         if success:
             sent_count += 1
 
-    # 🔥 DELETE REJECTED AFTER MAIL
+    # 🔥 Remove rejected after mail
     cursor.execute("DELETE FROM candidates WHERE status='Rejected'")
     conn.commit()
 
     return f"✅ {sent_count} mails sent successfully"
+
+
+# ===============================
+# 🚀 SEND APTITUDE MAIL
+# ===============================
+def send_aptitude_mails(sender, password, test_date):
+
+    cursor.execute("""
+    SELECT name, email, domain 
+    FROM candidates 
+    WHERE stage='Aptitude'
+    """)
+
+    rows = cursor.fetchall()
+
+    sent = 0
+
+    for name, email, domain in rows:
+
+        subject = "🧠 Aptitude Test Scheduled"
+        body = aptitude_schedule_template(name, domain, test_date)
+
+        if send_email(sender, password, email, subject, body):
+            sent += 1
+
+    return f"✅ {sent} aptitude mails sent"
+
+
+# ===============================
+# 🚀 AUTO SEND TEST LINK
+# ===============================
+def send_aptitude_links():
+
+    from datetime import datetime
+
+    now = datetime.now()
+
+    cursor.execute("""
+    SELECT name, email, aptitude_date 
+    FROM candidates 
+    WHERE stage='Aptitude'
+    """)
+
+    rows = cursor.fetchall()
+
+    for name, email, test_date in rows:
+
+        if not test_date:
+            continue
+
+        try:
+            test_time = datetime.strptime(test_date, "%Y-%m-%d %H:%M")
+
+            # 1 hour before trigger
+            diff = (test_time - now).total_seconds()
+
+            if 0 <= diff <= 60:
+
+                subject = "🧠 Aptitude Test Link"
+                body = aptitude_link_template(name)
+
+                send_email("yourgmail@gmail.com", "app_password", email, subject, body)
+
+        except Exception as e:
+            print("Link mail error:", e)
